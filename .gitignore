@@ -1,0 +1,17 @@
+# data & run artefacts (live in the workspace, not the repo)
+*.mp4
+!examples/*.mp4
+dataset*/
+crops*/
+output*/
+eval_run/
+runs/
+
+# model files: only the shipped checkpoint belongs in the repo
+*.pt
+*.ts
+!weights/*.pt
+
+__pycache__/
+*.pyc
+.DS_Store

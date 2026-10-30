@@ -1,0 +1,83 @@
+# Every number the pipeline depends on, in one place. Scripts read it through
+# avd.config; command-line flags still win, so a one-off experiment needs no
+# edit here.
+
+tiling:
+  # 512 px cut from the native 4K frame: a distant vehicle is 10-20 px and
+  # would vanish if the frame were downscaled to a 640 px network input.
+  tile: 512
+  overlap: 128
+  # Tile names encode clip, frame and origin: 8968356_f00507_x0384_y0384.jpg
+  # low-altitude tiles carry a rotation suffix: ..._x0384_y0768r90
+  name_pattern: '^(?P<clip>\w+?)_f(?P<frame>\d+)_x(?P<x>\d+)_y(?P<y>\d+)(?:r(?P<rot>\d+))?$'
+
+model:
+  # Rule 5: the detector that ships must stay under 500k parameters.
+  param_budget: 500000
+  config: configs/vehicle_tiny_p34.yaml
+
+training:
+  imgsz: 512
+  epochs: 250
+  patience: 60
+  batch: 64
+  close_mosaic: 20
+  cos_lr: true
+  coco_epochs: 30
+  # COCO ids kept for the pretrain stage: bicycle, car, motorcycle, bus, truck.
+  coco_vehicle_classes: [1, 2, 3, 5, 7]
+
+labels:
+  # Boxes thinner than this are tile crumbs: a few pixels of car teach noisy
+  # regression. Substantially visible clipped vehicles are kept on purpose.
+  min_box_side_px: 7
+  # A box longer than this, seen from above, is a bike lane or a kerb wall.
+  max_aspect: 2.8
+  vehicle_prompts:
+    - car seen from above
+    - van seen from above
+    - bus seen from above
+    - truck seen from above
+    - motorcycle seen from above
+    - moped seen from above
+    - scooter seen from above
+  # Naming what the false positives actually are gives those regions a better
+  # home than "bus"; the list grew from what each labelling pass produced.
+  distractor_prompts:
+    - white road marking
+    - white arrow painted on the road
+    - zebra crossing stripes
+    - white lane divider line
+    - kerb
+    - rooftop
+    - building
+    - tree
+    - umbrella seen from above
+    - pedestrian seen from above
+    - manhole cover
+    - drain grate
+
+inference:
+  # Tiles are read at this floor and the shipping threshold is applied after
+  # the seam merge: a vehicle split across a seam often scores higher on one
+  # fragment than on the whole-vehicle box.
+  merge_floor: 0.2
+  # Seen from above two vehicles never share pixels, so leftover overlap is
+  # one vehicle counted twice.
+  max_overlap: 0.2
+  containment_merge: 0.7
+  # Median vehicle size in the training tiles; --input-scale auto aims here.
+  train_median_px: 25.0
+  scale_steps: [1.0, 0.75, 0.5, 0.35, 0.25, 0.15]
+
+distance:
+  # Pinhole: d = f_px * L / p, f_px = W / (2*tan(hfov/2)), p the box long side.
+  hfov_deg: 84.0          # typical consumer drone main camera
+  vehicle_len_m: 4.5
+  band_edges_m: [0.0, 200.0, 400.0]
+  band_names: ["0-200m", "200-400m"]
+
+eval:
+  iou: 0.5
+  track_iou: 0.3
+  min_track: 3

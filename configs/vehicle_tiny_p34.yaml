@@ -1,0 +1,37 @@
+# Single-class vehicle detector, 388,786 parameters (budget: < 500,000).
+#
+# YOLOv8 layout with two changes against yolov8n:
+#   1. The P5 (stride-32) branch is removed, backbone and head. On 512 px
+#      tiles cut from the source videos the largest labelled box is ~350 px
+#      (p99 is 234 px), which sits inside P4's regression range
+#      (reg_max 16 x stride 16 = 256 px per box side, i.e. boxes up to
+#      ~512 px). P5 exists for objects that fill the whole tile; this data
+#      has none, so its parameters are spent on P3/P4 instead.
+#   2. width 0.25 with max_channels capped at 192 (yolov8n: 0.25 / 1024).
+#
+# Verify the count: python training/train.py --count-only
+
+nc: 1
+
+scales:
+  # [depth, width, max_channels]
+  n: [0.33, 0.25, 192]
+
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]    # 0  P1/2
+  - [-1, 1, Conv, [128, 3, 2]]   # 1  P2/4
+  - [-1, 3, C2f, [128, true]]    # 2
+  - [-1, 1, Conv, [256, 3, 2]]   # 3  P3/8
+  - [-1, 6, C2f, [256, true]]    # 4
+  - [-1, 1, Conv, [512, 3, 2]]   # 5  P4/16
+  - [-1, 6, C2f, [512, true]]    # 6
+  - [-1, 1, SPPF, [512, 5]]      # 7
+
+head:
+  - [-1, 1, nn.Upsample, [None, 2, nearest]]  # 8
+  - [[-1, 4], 1, Concat, [1]]                 # 9   cat backbone P3
+  - [-1, 3, C2f, [256]]                       # 10  P3/8 out
+  - [-1, 1, Conv, [256, 3, 2]]                # 11
+  - [[-1, 7], 1, Concat, [1]]                 # 12  cat SPPF P4
+  - [-1, 3, C2f, [512]]                       # 13  P4/16 out
+  - [[10, 13], 1, Detect, [nc]]               # 14
