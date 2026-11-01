@@ -39,6 +39,14 @@ fi
 
 mkdir -p "${WORKSPACE}" "${DATASETS_CACHE}" "${LOGS_PATH}" "${PROJECT_PATH}"
 
+# Ultralytics auto-downloads (COCO for the pretrain stage) default to
+# ~/datasets, which sits on the small container disk; settings.update() at
+# runtime cannot rebind it. Point the whole directory at the volume instead.
+if [ ! -e "${HOME}/datasets" ]; then
+    ln -s "${DATASETS_CACHE}" "${HOME}/datasets"
+    echo "==> ${HOME}/datasets -> ${DATASETS_CACHE}"
+fi
+
 if [ "${CODE_SOURCE}" = "git" ]; then
     if [ -z "${REPO_URL}" ] || [ -z "${GIT_REF}" ]; then
         echo "REPO_URL and GIT_REF are required for CODE_SOURCE=git" >&2

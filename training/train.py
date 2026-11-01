@@ -106,6 +106,10 @@ def main():
     print(f"device: {args.device}")
 
     if args.pretrain_coco:
+        # COCO (~37GB) auto-downloads into ultralytics' datasets_dir
+        # (~/datasets). Runtime settings.update() cannot move it — the constant
+        # binds at import — so on a pod bootstrap.sh symlinks ~/datasets to the
+        # big volume instead. Locally, make sure ~/datasets has ~40GB free.
         # COCO ids: 1 bicycle, 2 car, 3 motorcycle, 5 bus, 7 truck — the tile
         # labels include two-wheelers, so the pretrain sees them too.
         print(f"stage 1/2: COCO vehicles pretrain, {args.coco_epochs} epochs "
