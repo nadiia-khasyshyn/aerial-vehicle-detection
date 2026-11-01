@@ -83,7 +83,18 @@ def main():
                          "(what restart_on_crash.sh passes after a crash)")
     ap.add_argument("--count-only", action="store_true",
                     help="print the parameter count and exit")
+    ap.add_argument("--set", nargs="*", default=[], metavar="KEY=VAL",
+                    help="extra ultralytics train() overrides, e.g. "
+                         "--set flipud=0.5 degrees=30 (top-down footage has "
+                         "no gravity direction, unlike the defaults)")
     args = ap.parse_args()
+    overrides = {}
+    for item in args.set:
+        key, _, value = item.partition("=")
+        try:
+            overrides[key] = float(value)
+        except ValueError:
+            overrides[key] = value
 
     from ultralytics import YOLO
 
@@ -137,6 +148,7 @@ def main():
         # box regression settle on realistic layouts.
         close_mosaic=20,
         cos_lr=True,
+        **overrides,
     )
 
     best = Path(model.trainer.save_dir) / "weights" / "best.pt"

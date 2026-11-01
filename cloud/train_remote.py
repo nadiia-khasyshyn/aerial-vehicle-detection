@@ -65,6 +65,8 @@ def parse_args():
                        help="COCO-vehicles pretrain stage before the fine-tune "
                             "(~20GB COCO download on the pod)")
     train.add_argument("--coco-epochs", type=int, default=30)
+    train.add_argument("--set", nargs="*", default=[], metavar="KEY=VAL",
+                       help="extra train() overrides forwarded to training/train.py")
 
     pod = ap.add_argument_group("pod")
     pod.add_argument("--gpu", default="rtx-3090")
@@ -110,6 +112,8 @@ def pretrain_args(args, pretrained=None):
         extra += ["--pretrained", pretrained]
     if args.pretrain_coco:
         extra += ["--pretrain-coco", "--coco-epochs", str(args.coco_epochs)]
+    if args.set:
+        extra += ["--set", *args.set]
     return extra
 
 

@@ -24,12 +24,11 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from avd import get   # noqa: E402
-
-VEHICLE_CLASSES = set(get("labels.vehicle_prompts"))
-MAX_ASPECT = float(get("labels.max_aspect"))
+VEHICLE_CLASSES = {
+    "car seen from above", "van seen from above", "bus seen from above",
+    "truck seen from above", "motorcycle seen from above",
+    "moped seen from above", "scooter seen from above",
+}
 
 
 def grass_fraction(frame_hsv, box, pad_frac=0.25):
@@ -68,7 +67,7 @@ def main():
                     help="share of the vehicle box covered by the distractor")
     ap.add_argument("--max-grass", type=float, default=0.5,
                     help="drop a box whose footprint is greener than this")
-    ap.add_argument("--max-aspect", type=float, default=MAX_ASPECT,
+    ap.add_argument("--max-aspect", type=float, default=2.8,
                     help="drop boxes longer than this ratio: from above they "
                          "are bike lanes, kerb walls and shadows, not vehicles")
     args = ap.parse_args()

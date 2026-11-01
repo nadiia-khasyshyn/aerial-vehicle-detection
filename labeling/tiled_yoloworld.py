@@ -51,6 +51,12 @@ DISTRACTOR_CLASSES = [
     "rooftop",
     "building",
     "tree",
+    # Low-altitude street footage: a top-down umbrella is a compact coloured
+    # blob on asphalt, which the vehicle prompts otherwise claim.
+    "umbrella seen from above",
+    "pedestrian seen from above",
+    "manhole cover",
+    "drain grate",
 ]
 
 CLASSES = TARGET_CLASSES + DISTRACTOR_CLASSES
@@ -165,7 +171,8 @@ def merge_detections(boxes, scores, labels, iou=0.5, contain=0.8):
 
 
 def detect_frame(model, frame, tile, stride, conf, device, batch_size,
-                 max_area_frac, max_aspect=5.0, distractor_ids=frozenset()):
+                 max_area_frac, max_aspect=5.0, distractor_ids=frozenset(),
+                 imgsz=None):
     h, w = frame.shape[:2]
     tiles, offsets = [], []
     for y in tile_origins(h, tile, stride):
@@ -176,7 +183,7 @@ def detect_frame(model, frame, tile, stride, conf, device, batch_size,
     boxes, scores, labels = [], [], []
     for s in range(0, len(tiles), batch_size):
         chunk = tiles[s:s + batch_size]
-        results = model.predict(chunk, device=device, imgsz=tile, conf=conf,
+        results = model.predict(chunk, device=device, imgsz=imgsz or tile, conf=conf,
                                 iou=0.6, verbose=False)
         for res, (ox, oy) in zip(results, offsets[s:s + batch_size]):
             b = res.boxes
@@ -257,7 +264,9 @@ def process_video(model, path, out_root, args):
         d.mkdir(parents=True, exist_ok=True)
 
     scale = args.vis_width / w if args.vis_width and w > args.vis_width else 1.0
-    vw, vh = int(w * scale), int(h * scale)
+    # yuv420p needs even dimensions; a portrait clip scaled to vis_width lands
+    # on an odd height and ffmpeg dies on the first frame.
+    vw, vh = int(w * scale) // 2 * 2, int(h * scale) // 2 * 2
     writer = FragmentedWriter(vid_dir / f"{name}_annotated.mp4",
                               fps / args.frame_stride, (vw, vh))
 
@@ -284,7 +293,7 @@ def process_video(model, path, out_root, args):
             boxes, scores, labels = detect_frame(
                 model, frame, args.tile, args.tile - args.overlap, args.conf,
                 args.device, args.batch, args.max_area_frac, args.max_aspect,
-            distractor_ids)
+            distractor_ids, args.imgsz)
 
             for (x1, y1, x2, y2), sc, cl in zip(boxes.tolist(), scores.tolist(), labels.tolist()):
                 cname = names[int(cl)]
@@ -297,7 +306,7 @@ def process_video(model, path, out_root, args):
 
             vis = draw(frame, boxes, scores, labels, names,
                        max(2, int(3 * scale * 2)), 0.9)
-            if scale != 1.0:
+            if (vis.shape[1], vis.shape[0]) != (vw, vh):
                 vis = cv2.resize(vis, (vw, vh), interpolation=cv2.INTER_AREA)
             writer.write(vis)
 
@@ -323,6 +332,10 @@ def main():
     p.add_argument("--out", default="output")
     p.add_argument("--tile", type=int, default=640)
     p.add_argument("--overlap", type=int, default=128)
+    p.add_argument("--imgsz", type=int, default=None,
+                   help="inference size; defaults to --tile. Set it for "
+                        "full-frame mode (--tile larger than the frame), where "
+                        "feeding the raw 4K frame to the model is not viable")
     p.add_argument("--conf", type=float, default=0.05)
     p.add_argument("--max-area-frac", type=float, default=0.15)
     p.add_argument("--max-aspect", type=float, default=5.0)
