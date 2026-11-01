@@ -1,8 +1,8 @@
 # Aerial vehicle detection — ML Engineer test task
 
 A <500k-parameter single-class vehicle detector for drone footage, trained on
-model-generated labels from four Pexels clips and measured on a held-out fifth
-clip in two distance bands (0–200 m, 200–400 m).
+model-generated labels from Pexels clips and measured on a held-out eval clip
+in two distance bands (0–200 m, 200–400 m).
 
 > ⟨TODO⟩ marks every number that comes from an actual run. Fill them in before
 > submitting; nothing below should ship as a placeholder.
@@ -17,9 +17,15 @@ the train-video validation split, never on these numbers.
 |-------------------------------------|---------|-----------|
 | Detection rate TP / (TP + FN)       | ⟨TODO⟩  | ⟨TODO⟩    |
 | Precision TP / (TP + FP)            | ⟨TODO⟩  | ⟨TODO⟩    |
-| False alarms / min                  | ⟨TODO⟩  | ⟨TODO⟩    |
+| False alarms FP×60/N_frames         | ⟨TODO⟩  | ⟨TODO⟩    |
+| False alarms / min of footage       | ⟨TODO⟩  | ⟨TODO⟩    |
 | Time to first detection (median, s) | ⟨TODO⟩  | ⟨TODO⟩    |
 | mAP@0.5                             | ⟨TODO⟩  | ⟨TODO⟩    |
+
+mAP@0.5 over both bands (bonus): **⟨TODO⟩**. The false-alarm row uses the
+task sheet's formula (FP×60/N_frames — alarms per 60 frames); the row under it
+is per minute of real footage, which at 30 fps is 30× larger. Both come from
+the same run, pick whichever basis you trust.
 
 Final model: **388,786 parameters** (`training/train.py --count-only` prints
 and asserts it). Example frames with GT vs predictions are in `examples/`,
@@ -46,24 +52,30 @@ YOLOv8 layout cut down twice (`configs/vehicle_tiny_p34.yaml`):
 - **width 0.25 with channels capped at 192** (yolov8n: width 0.25, cap 1024).
 
 For reference, yolov8n is 3.16 M parameters and yolo11n 2.62 M, so the cut is
-roughly 8×. No pretrained weights exist for this scaling, so training is from
-scratch; the pseudo-labels already carry the large labelling models' knowledge,
-which is the distillation that matters at this size.
+roughly 8×. No published checkpoint fits this scaling, so the pretrain is made
+to measure: the same architecture is first trained on COCO's vehicle classes
+(allowed by rule 3), and those weights transfer into the fine-tune almost
+whole (~97% of tensors; only the final class convolutions differ).
 
 ## Data
 
-Four training clips (Pexels 8968356, 5382494, 8457857, 3405804), all at native
-resolution. Frames are cut into **512 px tiles** rather than downscaled: a
-distant vehicle is 10–20 px and would vanish at 640-px full-frame inference.
-The same tiling runs at inference (`eval/predict_video.py`, 128 px overlap,
-class-agnostic NMS on the merged frame), so train and test see one object
-scale. Tiles are spread thin across many frames instead of dense over few —
-the clips are 17–31 s, so frame diversity is the scarce resource, not tile
-count (`labeling/build_dataset.py`).
+Training: the task's four clips (Pexels 8968356, 5382494, 8457857, 3405804)
+plus one added clip (Pexels 15857456, ⟨TODO: why — e.g. 200–400 m band
+coverage, rule 4 allows it⟩), all at native resolution. Frames are cut into
+**512 px tiles** rather than downscaled: a distant vehicle is 10–20 px and
+would vanish at 640-px full-frame inference. The same tiling runs at inference
+(`eval/predict_video.py`, 128 px overlap, class-agnostic NMS on the merged
+frame), so train and test see one object scale. Tiles are spread thin across
+many frames instead of dense over few — the clips are 17–31 s, so frame
+diversity is the scarce resource, not tile count (`labeling/build_dataset.py`).
 
-Train/val split is **temporal, per video** (`training/make_split.py`): the
-last 20% of each clip's frames are validation. A random tile split would put
-near-identical neighbouring frames on both sides.
+Validation is a **whole held-out clip** (Pexels 14710575, labelled with the
+same pipeline, never trained on): checkpoint and confidence threshold are
+picked on footage the model has never seen, which a within-clip temporal split
+cannot guarantee — neighbouring frames are near-duplicates. The eval clip
+stays untouched by every one of these decisions (rule 1).
+(`training/make_split.py` remains for a temporal split when only the four
+clips are available.)
 
 ## Labels (rule 2)
 
@@ -98,13 +110,16 @@ boxes over ⟨TODO⟩ tiles.
 ## Training
 
 ```
-python training/make_split.py --sources <images>:<labels> [...] --out dataset_final
-python training/train.py --data dataset_final/data.yaml        # asserts <500k
+python training/train.py --data <dataset>/data.yaml --pretrain-coco  # 2 stages
+python training/train.py --data <dataset>/data.yaml                  # scratch
 ```
 
-From scratch, imgsz 512 (= tile size), 250 epochs with cosine LR, mosaic off
-for the last 20 epochs. The shipping checkpoint and confidence threshold are
-picked on the validation split only (rule 1).
+imgsz 512 (= tile size), 250 epochs with cosine LR, mosaic off for the last
+20 epochs; the parameter budget is asserted before every run. `--pretrain-coco`
+runs the COCO-vehicles pretrain described above first (≈20 GB COCO download —
+do it on the pod); `--pretrained <ckpt>` instead transfers whatever matches by
+shape from any checkpoint. The shipping checkpoint and confidence threshold
+are picked on the validation split only (rule 1).
 
 Training runs locally (`--device auto` picks CUDA, then Apple MPS, then CPU)
 or on a rented RunPod GPU via `cloud/` — a slim port of a production cloud

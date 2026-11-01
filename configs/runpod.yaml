@@ -13,16 +13,24 @@ gpu_priority:
   - "NVIDIA GeForce RTX 4090"
   - "NVIDIA RTX A5000"
   - "NVIDIA A40"
+  - "NVIDIA RTX 4000 SFF Ada Generation"
+  - "NVIDIA GeForce RTX 3070"
+# The cu124 torch wheels run on any newer driver, so everything 12.4+ is fine;
+# leaving 13.x out silently filtered away most of the fleet.
 allowed_cuda_versions:
   - "12.4"
+  - "12.5"
   - "12.6"
+  - "12.7"
   - "12.8"
   - "12.9"
+  - "13.0"
 data_center_ids: []
-min_ram_per_gpu_gb: 16
-min_vcpu_per_gpu: 8
-min_download_mbps: 100
-min_upload_mbps: 50
+# Loose on purpose: strict minimums silently empty the COMMUNITY pool.
+min_ram_per_gpu_gb: 8
+min_vcpu_per_gpu: 4
+min_download_mbps: 50
+min_upload_mbps: 20
 
 # The 512px tile dataset is a few GB at most, no need for the big volumes.
 container_disk_gb: 40

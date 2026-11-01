@@ -58,6 +58,13 @@ def parse_args():
     train.add_argument("--batch", type=int, default=None,
                        help="default: the GPU catalog's suggestion for --imgsz")
     train.add_argument("--name", default=None, help="run name, defaults to the run id")
+    train.add_argument("--pretrained", default=None,
+                       help="checkpoint to transfer weights from; a local file is "
+                            "uploaded to the pod, a bare name is downloaded there")
+    train.add_argument("--pretrain-coco", action="store_true",
+                       help="COCO-vehicles pretrain stage before the fine-tune "
+                            "(~20GB COCO download on the pod)")
+    train.add_argument("--coco-epochs", type=int, default=30)
 
     pod = ap.add_argument_group("pod")
     pod.add_argument("--gpu", default="rtx-3090")
@@ -95,6 +102,17 @@ def load_env_file(path):
     return values
 
 
+def pretrain_args(args, pretrained=None):
+    """CLI tail shared by the local and remote train commands."""
+    extra = []
+    pretrained = pretrained or args.pretrained
+    if pretrained:
+        extra += ["--pretrained", pretrained]
+    if args.pretrain_coco:
+        extra += ["--pretrain-coco", "--coco-epochs", str(args.coco_epochs)]
+    return extra
+
+
 def run_local(args):
     """The laptop mode: training/train.py picks cuda / mps / cpu itself."""
     command = [sys.executable, str(REPO_ROOT / "training" / "train.py"),
@@ -105,6 +123,7 @@ def run_local(args):
         command += ["--batch", str(args.batch)]
     if args.name:
         command += ["--name", args.name]
+    command += pretrain_args(args)
     print("[local] " + " ".join(command[1:]))
     sys.exit(subprocess.run(command).returncode)
 
@@ -190,11 +209,19 @@ def main():
         f"train-{datetime.now().strftime('%b-%d-%H%M')}-{args.tag or str(uuid4())[:4]}"
     run_name = args.name or run_id
     remote_data = f"datasets/{dataset_dir.name}/data.yaml"
+    # A local pretrained checkpoint rides up separately (code rsync excludes *.pt)
+    # and is addressed by its in-repo path on the pod.
+    pretrained_local = Path(args.pretrained).expanduser() if args.pretrained else None
+    if pretrained_local is not None and not pretrained_local.exists():
+        pretrained_local = None  # a bare name like yolov8n.pt downloads on the pod
+    extra = " ".join(shlex.quote(a) for a in pretrain_args(
+        args, f"weights/{pretrained_local.name}" if pretrained_local else None))
     remote_command = (
         f"cd {shlex.quote(project_path)} && {python_path} training/train.py"
         f" --data {shlex.quote(remote_data)} --model {shlex.quote(args.model)}"
         f" --imgsz {args.imgsz} --epochs {args.epochs} --patience {args.patience}"
-        f" --batch {batch} --name {shlex.quote(run_name)} --device 0")
+        f" --batch {batch} --name {shlex.quote(run_name)} --device 0"
+        + (f" {extra}" if extra else ""))
     if args.crash_restarts > 0:
         remote_command = (f"bash {shlex.quote(workspace)}/scripts/restart_on_crash.sh "
                           f"{args.crash_restarts} {shlex.quote('--resume')} "
@@ -294,10 +321,15 @@ def main():
             if shell.stream(f"{bootstrap} checkout") != 0:
                 raise RuntimeError("Checkout stage failed")
 
+            if pretrained_local:
+                shell.run(f"mkdir -p {shlex.quote(project_path)}/weights", quiet=True)
+                shell.upload(str(pretrained_local), f"{project_path}/weights/")
+
             print(f"Uploading the dataset: {dataset_dir}")
             shell.run(f"mkdir -p {shlex.quote(datasets_cache)}/{shlex.quote(dataset_dir.name)}",
                       quiet=True)
-            shell.upload(f"{dataset_dir}/", f"{datasets_cache}/{dataset_dir.name}/")
+            shell.upload(f"{dataset_dir}/", f"{datasets_cache}/{dataset_dir.name}/",
+                         copy_links=True)
 
             print("Installing dependencies (a few minutes on a cold pod).")
             deps_id = f"{run_id}-deps"

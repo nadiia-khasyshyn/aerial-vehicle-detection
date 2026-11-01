@@ -111,9 +111,12 @@ class RemoteShell:
             process.terminate()
             raise
 
-    def upload(self, local_path: str, remote_path: str, excludes: list[str] | None = None, delete: bool = False):
+    def upload(self, local_path: str, remote_path: str, excludes: list[str] | None = None, delete: bool = False,
+               copy_links: bool = False):
+        # copy_links dereferences symlinks (-L): a dataset assembled from symlinks
+        # must arrive as real files, since the link targets don't exist on the pod.
         rsync_ssh = f"ssh -i {shlex.quote(self.key_path)} -p {self.port} {' '.join(self.ssh_options)}"
-        command = ["rsync", "-rlptDz", "-e", rsync_ssh]
+        command = ["rsync", "-rLptDz" if copy_links else "-rlptDz", "-e", rsync_ssh]
         for pattern in excludes or []:
             command.extend(["--exclude", pattern])
         if delete:

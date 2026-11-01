@@ -207,6 +207,9 @@ def main():
                     ap_records[b].append((p[4], False))
     ap50 = [average_precision(ap_records[b], n_gt_band[b])
             for b in range(N_BANDS)]
+    # The task's bonus metric is a single mAP@0.5 "over both bands".
+    ap50_both = average_precision(ap_records[0] + ap_records[1],
+                                  n_gt_band[0] + n_gt_band[1])
 
     # --- time to first detection over GT tracks ---------------------------
     gt_frames = sorted(set(gt))
@@ -244,11 +247,15 @@ def main():
         det_rate = tp[b] / (tp[b] + fn[b]) if tp[b] + fn[b] else float("nan")
         prec = tp[b] / (tp[b] + fp[b]) if tp[b] + fp[b] else float("nan")
         fa_min = fp[b] / minutes if minutes else float("nan")
+        # The task sheet's formula is FP x 60 / N_frames — false alarms per 60
+        # *frames*, which only equals "per minute" at 1 fps. Report both.
+        fa_task = fp[b] * 60.0 / len(frames) if frames else float("nan")
         med = float(np.median(ttfd[b])) if ttfd[b] else float("nan")
         rows.append({
             "band": BAND_NAMES[b],
             "detection_rate": det_rate, "precision": prec,
-            "false_alarms_per_min": fa_min, "ttfd_median_s": med,
+            "false_alarms_per_min": fa_min, "fa_task_formula": fa_task,
+            "ttfd_median_s": med,
             "mAP50": ap50[b],
             "tp": tp[b], "fn": fn[b], "fp": fp[b], "n_gt": n_gt_band[b],
             "tracks": n_tracks[b], "tracks_never_detected": never[b],
@@ -265,7 +272,8 @@ def main():
     table = [
         ("Detection rate TP/(TP+FN)", [fmt(r["detection_rate"]) for r in rows]),
         ("Precision TP/(TP+FP)", [fmt(r["precision"]) for r in rows]),
-        ("False alarms / min", [fmt(r["false_alarms_per_min"], ".1f") for r in rows]),
+        ("False alarms / min of footage", [fmt(r["false_alarms_per_min"], ".1f") for r in rows]),
+        ("False alarms FPx60/N_frames (task formula)", [fmt(r["fa_task_formula"], ".1f") for r in rows]),
         ("Time to first detection (median s)", [fmt(r["ttfd_median_s"]) for r in rows]),
         ("mAP@0.5", [fmt(r["mAP50"]) for r in rows]),
     ]
@@ -275,6 +283,7 @@ def main():
     for name, vals in table:
         print(f"| {name:<{w0}} | " + " | ".join(f"{v:>8}" for v in vals) + " |")
     print()
+    print(f"mAP@0.5 over both bands (task bonus): {fmt(ap50_both)}")
     for r in rows:
         print(f"{r['band']}: GT {r['n_gt']}, TP {r['tp']}, FN {r['fn']}, "
               f"FP {r['fp']}; tracks {r['tracks']} "
@@ -282,7 +291,8 @@ def main():
 
     if args.out:
         Path(args.out).write_text(json.dumps(
-            {"config": vars(args), "bands": rows}, indent=2))
+            {"config": vars(args), "bands": rows,
+             "mAP50_both_bands": ap50_both}, indent=2))
         print(f"-> {args.out}")
 
 

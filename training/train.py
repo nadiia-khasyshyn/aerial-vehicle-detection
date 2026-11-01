@@ -1,10 +1,15 @@
-"""Train the sub-500k detector from scratch on the labelled tiles.
+"""Train the sub-500k detector on the labelled tiles.
 
-No pretrained weights: the custom width/channel scaling means no published
-checkpoint fits this architecture, and the domain (top-down road scenes) is
-narrow enough that a from-scratch schedule converges on a few thousand tiles.
-The pseudo-labels already carry the large models' knowledge, which is the
-distillation that matters here.
+No published checkpoint fits this custom scaling, so "pretrained" comes in two
+honest flavours instead:
+
+- --pretrain-coco first trains this same architecture on COCO's vehicle
+  classes (COCO pretrain is explicitly allowed), then fine-tunes on the tiles;
+  everything but the final class convolutions transfers (~97% of tensors).
+- --pretrained <ckpt> loads any checkpoint, copying whatever matches by shape.
+  From yolov8n.pt only the early backbone matches (~3% of parameters) — it is
+  close to training from scratch, which also works: the pseudo-labels already
+  carry the large labelling models' knowledge.
 
 The parameter budget is asserted before training starts, so an accidental
 config change cannot silently ship an oversized model.
@@ -65,6 +70,14 @@ def main():
     ap.add_argument("--device", default="auto",
                     help="auto picks cuda, then mps, then cpu")
     ap.add_argument("--name", default="vehicle_tiny")
+    ap.add_argument("--pretrained", default=None,
+                    help="checkpoint to transfer shape-matching weights from "
+                         "(a path, or a name like yolov8n.pt that ultralytics downloads)")
+    ap.add_argument("--pretrain-coco", action="store_true",
+                    help="stage 1: train this same architecture on COCO vehicle "
+                         "classes, then fine-tune on --data with those weights "
+                         "(downloads COCO ~20GB; run it on the pod)")
+    ap.add_argument("--coco-epochs", type=int, default=30)
     ap.add_argument("--resume", action="store_true",
                     help="resume the newest runs/detect/<name>*/ from its last.pt "
                          "(what restart_on_crash.sh passes after a crash)")
@@ -91,6 +104,21 @@ def main():
     heal_data_yaml(args.data)
     args.device = resolve_device(args.device)
     print(f"device: {args.device}")
+
+    if args.pretrain_coco:
+        # COCO ids: 1 bicycle, 2 car, 3 motorcycle, 5 bus, 7 truck — the tile
+        # labels include two-wheelers, so the pretrain sees them too.
+        print(f"stage 1/2: COCO vehicles pretrain, {args.coco_epochs} epochs "
+              f"(note: a crash-restart --resume resumes only the stage it lands in)")
+        stage = YOLO(args.model)
+        stage.train(data="coco.yaml", classes=[1, 2, 3, 5, 7],
+                    imgsz=args.imgsz, epochs=args.coco_epochs, batch=args.batch,
+                    device=args.device, name=f"{args.name}_coco", cos_lr=True)
+        args.pretrained = str(Path(stage.trainer.save_dir) / "weights" / "best.pt")
+        print(f"stage 2/2: fine-tune from {args.pretrained}")
+
+    if args.pretrained:
+        model.load(args.pretrained)  # prints how many tensors transferred
 
     model.train(
         data=args.data,
