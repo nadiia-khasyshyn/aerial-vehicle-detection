@@ -17,3 +17,9 @@ __pycache__/
 .DS_Store
 .env
 .env.*
+
+# clips are fetched with data/videos/fetch.sh, not committed
+data/videos/*.mp4
+
+# scratch copies of the dataset produced while experimenting
+dataset_zoom*/

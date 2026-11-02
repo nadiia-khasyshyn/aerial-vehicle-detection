@@ -17,6 +17,7 @@ Outputs:
 import argparse
 import csv
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -61,8 +62,14 @@ def tile_origins(size, tile, stride):
     return xs
 
 
-MERGE_FLOOR = 0.2
-MAX_OVERLAP = 0.2   # IoU above which two vehicle boxes are the same vehicle
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from avd import get, tile_origins as _tile_origins   # noqa: E402
+
+MERGE_FLOOR = float(get("inference.merge_floor"))
+TRAIN_MEDIAN_PX = float(get("inference.train_median_px"))
+SCALE_STEPS = tuple(get("inference.scale_steps"))
+MAX_OVERLAP = float(get("inference.max_overlap"))
+CONTAINMENT = float(get("inference.containment_merge"))
 
 
 def detect_frame(model, frame, tile, overlap, conf, device, batch):
@@ -128,8 +135,6 @@ def merge_detections(boxes, scores):
             lt = torch.maximum(boxes[i, :2], boxes[j, :2])
             rb = torch.minimum(boxes[i, 2:], boxes[j, 2:])
             inter = (rb - lt).clamp(min=0).prod()
-            # intersection over the smaller area: folds a part-box into the
-            # whole regardless of which of the two scored higher
             if inter / torch.minimum(areas[i], areas[j]).clamp(min=1e-6) > 0.7:
                 boxes[j, :2] = torch.minimum(boxes[j, :2], boxes[i, :2])
                 boxes[j, 2:] = torch.maximum(boxes[j, 2:], boxes[i, 2:])
@@ -140,11 +145,39 @@ def merge_detections(boxes, scores):
             kept.append(i)
     idx = torch.tensor(kept, dtype=torch.long)
     boxes, scores = boxes[idx], scores[idx]
-    # Seen from above, two vehicles never share pixels: there is no
-    # perspective occlusion. Any residual overlap is one vehicle counted
-    # twice, so keep the more confident box.
     keep = nms(boxes, scores, MAX_OVERLAP)
     return boxes[keep], scores[keep]
+
+
+def choose_input_scale(model, cap, total, args, target_px):
+    """Pick the input scale from the model's own detections, not from labels.
+
+    Runs the detector on a handful of frames at native resolution and measures
+    the median box it produces. If the footage was shot lower than the training
+    clips, that median lands far above the size the model knows, and the frame
+    is shrunk until it does not. Nothing here reads ground truth, so the choice
+    stays legal under the "no decisions from the eval clip" rule.
+    """
+    probe_idx = [int(total * q) for q in (0.2, 0.5, 0.8)]
+    sizes = []
+    for idx in probe_idx:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        ok, frame = cap.read()
+        if not ok:
+            continue
+        boxes, _ = detect_frame(model, frame, args.tile, args.overlap,
+                                0.25, args.device, args.batch)
+        sizes += [float(max(b[2] - b[0], b[3] - b[1])) for b in boxes]
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    if len(sizes) < 5:
+        print("auto scale: too few detections to judge, staying at 1.0")
+        return 1.0
+    median = sorted(sizes)[len(sizes) // 2]
+    ideal = target_px / median
+    scale = min(SCALE_STEPS, key=lambda s: abs(s - ideal))
+    print(f"auto scale: median detection {median:.0f}px over {len(sizes)} boxes, "
+          f"target {target_px:.0f}px -> scale {scale} (ideal {ideal:.2f})")
+    return scale
 
 
 def main():
@@ -163,6 +196,13 @@ def main():
                     help="start at this timestamp in seconds")
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--vis-width", type=int, default=1920)
+    ap.add_argument("--train-median-px", type=float, default=TRAIN_MEDIAN_PX,
+                    help="median vehicle size the detector was trained on; "
+                         "--input-scale auto aims for it")
+    ap.add_argument("--input-scale", default="1.0",
+                    help='"auto" probes a few frames and picks the scale that '
+                         'brings the median detection to --train-median-px; '
+                         'a number applies that scale directly. ')
     ap.add_argument("--no-video", action="store_true",
                     help="write predictions.csv only, skip the annotated mp4")
     ap.add_argument("--device", default="mps")
@@ -180,11 +220,16 @@ def main():
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     scale = args.vis_width / W if W > args.vis_width else 1.0
-    # yuv420p requires even dimensions; a portrait 2160x3840 clip scaled by
-    # 1920/2160 lands on an odd height and kills ffmpeg instantly.
+    # yuv420p needs even dimensions; an odd height kills ffmpeg instantly.
     vis_size = (int(W * scale) // 2 * 2, int(H * scale) // 2 * 2)
     writer = None if args.no_video else FragmentedWriter(
         out / "annotated.mp4", fps / args.frame_stride, vis_size)
+
+    if str(args.input_scale).lower() == "auto":
+        args.input_scale = choose_input_scale(model, cap, total, args,
+                                              args.train_median_px)
+    else:
+        args.input_scale = float(args.input_scale)
 
     csv_f = open(out / "predictions.csv", "w", newline="")
     csv_w = csv.writer(csv_f)
@@ -207,8 +252,16 @@ def main():
                 break
             if idx % args.frame_stride:
                 continue
-            boxes, scores = detect_frame(model, frame, args.tile, args.overlap,
-                                         args.conf, args.device, args.batch)
+            if args.input_scale != 1.0:
+                small = cv2.resize(frame, (int(W * args.input_scale),
+                                           int(H * args.input_scale)),
+                                   interpolation=cv2.INTER_AREA)
+                boxes, scores = detect_frame(model, small, args.tile, args.overlap,
+                                             args.conf, args.device, args.batch)
+                boxes = boxes / args.input_scale
+            else:
+                boxes, scores = detect_frame(model, frame, args.tile, args.overlap,
+                                             args.conf, args.device, args.batch)
             for (x1, y1, x2, y2), sc in zip(boxes.tolist(), scores.tolist()):
                 csv_w.writerow([idx, round(idx / fps, 3), round(sc, 4),
                                 int(x1), int(y1), int(x2), int(y2)])

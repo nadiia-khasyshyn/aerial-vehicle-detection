@@ -1,12 +1,11 @@
 # Single-class vehicle detector, 388,786 parameters (budget: < 500,000).
 #
 # YOLOv8 layout with two changes against yolov8n:
-#   1. The P5 (stride-32) branch is removed, backbone and head. On 512 px
-#      tiles cut from the source videos the largest labelled box is ~350 px
-#      (p99 is 234 px), which sits inside P4's regression range
-#      (reg_max 16 x stride 16 = 256 px per box side, i.e. boxes up to
-#      ~512 px). P5 exists for objects that fill the whole tile; this data
-#      has none, so its parameters are spent on P3/P4 instead.
+#   1. The P5 (stride-32) branch is removed, backbone and head. P4's DFL
+#      regression reaches 15 strides either side of an anchor, i.e. box sides
+#      up to 480 px, and only 9 of the 9661 labelled boxes exceed that. P5
+#      exists for objects that fill the whole tile; this data has almost none,
+#      so its parameters are spent on P3/P4 instead.
 #   2. width 0.25 with max_channels capped at 192 (yolov8n: 0.25 / 1024).
 #
 # Verify the count: python training/train.py --count-only

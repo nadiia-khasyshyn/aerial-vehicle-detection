@@ -18,10 +18,15 @@ Assumptions, stated so they can be argued with:
 
 import math
 
-DEFAULT_HFOV_DEG = 84.0   # typical consumer drone main camera (e.g. DJI)
-DEFAULT_VEHICLE_LEN_M = 4.5
-BAND_EDGES_M = (0.0, 200.0, 400.0)
-BAND_NAMES = ("0-200m", "200-400m")
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from avd import get
+
+DEFAULT_HFOV_DEG = float(get("distance.hfov_deg"))
+DEFAULT_VEHICLE_LEN_M = float(get("distance.vehicle_len_m"))
+BAND_EDGES_M = tuple(get("distance.band_edges_m"))
+BAND_NAMES = tuple(get("distance.band_names"))
 
 
 def focal_px(img_w, hfov_deg=DEFAULT_HFOV_DEG):

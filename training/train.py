@@ -18,7 +18,12 @@ config change cannot silently ship an oversized model.
 import argparse
 from pathlib import Path
 
-PARAM_BUDGET = 500_000
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from avd import get   # noqa: E402
+
+PARAM_BUDGET = int(get("model.param_budget"))
+TRAIN_CFG = get("training")
 
 
 def resolve_device(choice):

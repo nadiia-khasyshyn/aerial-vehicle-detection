@@ -27,37 +27,14 @@ from ultralytics import YOLO, YOLOWorld
 # "... seen from above" roughly doubles recall over the bare nouns: the bare
 # prompts are anchored on side-on COCO imagery and miss most of a top-down
 # frame. Measured on 3405804 frame 150: 40 detections -> 73.
-TARGET_CLASSES = [
-    "car seen from above",
-    "van seen from above",
-    "bus seen from above",
-    "truck seen from above",
-    "motorcycle seen from above",
-    "moped seen from above",
-    "scooter seen from above",
-    "person seen from above",
-]
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
+from avd import get as _get   # noqa: E402
 
-# Distractors. An open-vocabulary head scores every prompt against the same
-# region, so naming what the false positives actually are gives those regions
-# a better-fitting home than "bus". These are the FP sources seen in the first
-# run: kerbs, lane paint, zebra stripes, rooftops and tree canopy.
-DISTRACTOR_CLASSES = [
-    "white road marking",
-    "white arrow painted on the road",
-    "zebra crossing stripes",
-    "white lane divider line",
-    "kerb",
-    "rooftop",
-    "building",
-    "tree",
-    # Low-altitude street footage: a top-down umbrella is a compact coloured
-    # blob on asphalt, which the vehicle prompts otherwise claim.
-    "umbrella seen from above",
-    "pedestrian seen from above",
-    "manhole cover",
-    "drain grate",
-]
+TARGET_CLASSES = list(_get("labels.vehicle_prompts")) + ["person seen from above"]
+DISTRACTOR_CLASSES = list(_get("labels.distractor_prompts"))
+
 
 CLASSES = TARGET_CLASSES + DISTRACTOR_CLASSES
 

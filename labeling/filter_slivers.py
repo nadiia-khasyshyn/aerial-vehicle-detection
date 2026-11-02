@@ -10,14 +10,21 @@ recall at tile seams.
 """
 
 import argparse
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from avd import get   # noqa: E402
+
+TILE = int(get("tiling.tile"))
+MIN_SIDE = float(get("labels.min_box_side_px"))
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--labels", required=True)
-    ap.add_argument("--tile", type=int, default=512, help="tile size in px")
-    ap.add_argument("--min-side", type=float, default=7.0,
+    ap.add_argument("--tile", type=int, default=TILE, help="tile size in px")
+    ap.add_argument("--min-side", type=float, default=MIN_SIDE,
                     help="drop boxes whose shorter side is below this, in px")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
