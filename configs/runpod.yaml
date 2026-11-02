@@ -22,7 +22,7 @@ gpu_priority:
 allowed_cuda_versions: []
 data_center_ids: []
 # No host minimums: every extra constraint silently empties the pool, and the
-# workload (330 MB dataset, a 389k-param model) is happy on any host.
+# workload (330 MB dataset, a sub-500k model) is happy on any host.
 min_ram_per_gpu_gb: 0
 min_vcpu_per_gpu: 0
 min_download_mbps: 0

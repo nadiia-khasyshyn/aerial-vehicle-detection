@@ -1,13 +1,8 @@
-# -*- coding:utf8 -*-
-# !/usr/bin/env python3
-
-
 """
 Thin client for the RunPod REST API v1 (https://rest.runpod.io/v1).
 """
 
 import os
-import time
 import requests
 
 DEFAULT_BASE_URL = "https://rest.runpod.io/v1"

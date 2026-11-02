@@ -15,7 +15,7 @@ Drop the downloaded files into `videos/` and every script below finds them.
 | 3405804 | train | urban intersection (task clip D) |
 | 15857456 | train | added clip, wide highway from altitude |
 | 14710575 | val | held-out clip: checkpoint and threshold are chosen here |
-| 13722965 | eval | low-altitude street, measured only (rule 1) |
+| 13722965 | eval | low-altitude street, measured only, never decided on |
 
 The task's own eval clip (32179597) could not be downloaded, so 13722965
 stands in for it — see the README's Results section.
@@ -23,7 +23,7 @@ stands in for it — see the README's Results section.
 ## From clips to the training set
 
 ```
-# 1. propose boxes with an open-vocabulary detector (rule 2)
+# 1. propose boxes with an open-vocabulary detector
 python labeling/tiled_yoloworld.py --videos data/videos/8968356*.mp4 \
     --tile 640 --overlap 128 --out output_8968356
 

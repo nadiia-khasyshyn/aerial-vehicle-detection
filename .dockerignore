@@ -1,0 +1,14 @@
+# Keep the build context small: the image copies only avd/, the ONNX entry
+# point, the config and the exported graph.
+.git
+videos
+examples
+data/videos
+dataset*
+runs
+labeling
+cloud
+training
+weights/*.pt
+__pycache__
+*.pyc

@@ -1,7 +1,3 @@
-# -*- coding:utf8 -*-
-# !/usr/bin/env python3
-
-
 """
 Pod provisioning: builds the RunPod create-pod payload and waits until the machine is reachable.
 """
@@ -108,4 +104,4 @@ def shutdown_pod(client: RunpodClient, pod_id: str, stop_instead_of_terminate: b
             if attempt < attempts:
                 time.sleep(min(30, 2 ** attempt))
     print(f"Failed to shut down pod {pod_id} after {attempts} attempts: {last_error}")
-    print(f"It is still billing. Terminate it manually: https://console.runpod.io/pods")
+    print("It is still billing. Terminate it manually: https://console.runpod.io/pods")

@@ -1,13 +1,7 @@
-"""Run the shipped detector over a clip, tiled, and write predictions + video.
+"""Run the detector over a clip, tiled, and write predictions + video.
 
-Same tiling the training data was cut with (512 px at native resolution), so
-the model sees at inference exactly the object scale it was trained on.
-Per-tile detections are merged into frame coordinates with class-agnostic NMS;
-boxes a tile seam cut in half mostly disappear into the overlap, the rest are
-cleaned by the merge.
-
-The confidence threshold is a shipping decision: pick it on the train-video
-val split, never on the eval clip's numbers (rule 1).
+The development path (ultralytics); `eval/detect_onnx.py` is the deployment
+one and both read their thresholds from the same config.
 
 Outputs:
   <out>/predictions.csv        frame, time_s, conf, x1, y1, x2, y2
@@ -16,73 +10,32 @@ Outputs:
 
 import argparse
 import csv
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 import cv2
-import torch
-from torchvision.ops import nms
+import numpy as np
 
 from ultralytics import YOLO
 
-
-class FragmentedWriter:
-    """Fragmented MP4 via ffmpeg: an interrupted run still leaves a playable file."""
-
-    def __init__(self, path, fps, size):
-        w, h = size
-        self.proc = subprocess.Popen(
-            ["ffmpeg", "-y", "-v", "error",
-             "-f", "rawvideo", "-pix_fmt", "bgr24",
-             "-s", f"{w}x{h}", "-r", f"{fps:.4f}", "-i", "-",
-             "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-             "-preset", "veryfast", "-crf", "23",
-             "-g", "30", "-frag_duration", "1000000", "-flush_packets", "1",
-             "-movflags", "+frag_keyframe+empty_moov+default_base_moof",
-             str(path)],
-            stdin=subprocess.PIPE)
-
-    def write(self, frame):
-        self.proc.stdin.write(frame.tobytes())
-
-    def release(self):
-        if self.proc.stdin and not self.proc.stdin.closed:
-            self.proc.stdin.close()
-        self.proc.wait()
-
-
-def tile_origins(size, tile, stride):
-    if size <= tile:
-        return [0]
-    xs = list(range(0, size - tile + 1, stride))
-    if xs[-1] != size - tile:
-        xs.append(size - tile)
-    return xs
-
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from avd import get, tile_origins as _tile_origins   # noqa: E402
+from avd import get, merge_detections, tile_origins   # noqa: E402
+from avd.video import FragmentedWriter, even_size   # noqa: E402
 
 MERGE_FLOOR = float(get("inference.merge_floor"))
 TRAIN_MEDIAN_PX = float(get("inference.train_median_px"))
 SCALE_STEPS = tuple(get("inference.scale_steps"))
-MAX_OVERLAP = float(get("inference.max_overlap"))
-CONTAINMENT = float(get("inference.containment_merge"))
+AUTO_TRIGGER = float(get("inference.auto_scale_trigger"))
+TILE_NMS_IOU = float(get("inference.tile_nms_iou"))
 
 
 def detect_frame(model, frame, tile, overlap, conf, device, batch):
     """Tiled detection at the clip's native resolution.
 
-    Train and inference see one object scale: the tiles are cut from the full
-    4K frame, exactly as the training tiles were.
-
-    The tiles are read at MERGE_FLOOR and `conf` is applied only after the
-    merge. A vehicle split across a seam often scores high on one fragment and
-    low on the whole-vehicle box; thresholding first throws the whole box away
-    and ships the fragment, which is what put part-boxes in the rendered video
-    while the same frame looked right at a lower threshold.
+    Tiles are read at MERGE_FLOOR and `conf` applied only after the merge: a
+    vehicle split across a seam scores higher on one fragment than on the whole
+    box, so thresholding first keeps the fragment.
     """
     floor = min(conf, MERGE_FLOOR)
     h, w = frame.shape[:2]
@@ -96,87 +49,54 @@ def detect_frame(model, frame, tile, overlap, conf, device, batch):
     boxes, scores = [], []
     for s in range(0, len(tiles), batch):
         results = model.predict(tiles[s:s + batch], device=device, imgsz=tile,
-                                conf=floor, iou=0.6, verbose=False)
+                                conf=floor, iou=TILE_NMS_IOU, verbose=False)
         for res, (ox, oy) in zip(results, offsets[s:s + batch]):
             b = res.boxes
             if len(b) == 0:
                 continue
-            xyxy = b.xyxy.cpu()
+            xyxy = b.xyxy.cpu().numpy()
             xyxy[:, [0, 2]] += ox
             xyxy[:, [1, 3]] += oy
             boxes.append(xyxy)
-            scores.append(b.conf.cpu())
+            scores.append(b.conf.cpu().numpy())
 
     if not boxes:
-        return torch.zeros((0, 4)), torch.zeros(0)
-    boxes, scores = merge_detections(torch.cat(boxes), torch.cat(scores))
+        return np.zeros((0, 4), np.float32), np.zeros(0, np.float32)
+    boxes, scores = merge_detections(np.concatenate(boxes),
+                                     np.concatenate(scores))
     keep = scores >= conf
-    return boxes[keep], scores[keep]
-
-
-def merge_detections(boxes, scores):
-    """NMS plus containment MERGE (non-max merging, as in SAHI).
-
-    Tile seams leave part-boxes (a hood from one tile, the full car from the
-    neighbouring one); their IoU is too small for plain NMS. A box whose own
-    area lies >70% inside an already-kept box is folded in: the kept box grows
-    to their union and keeps the higher confidence, so the final box covers
-    the whole vehicle instead of its best-scoring piece.
-    """
-    keep = nms(boxes, scores, 0.5)
-    boxes, scores = boxes[keep], scores[keep]
-    order = scores.argsort(descending=True)
-    boxes, scores = boxes[order].clone(), scores[order].clone()
-    areas = (boxes[:, 2] - boxes[:, 0]).clamp(min=0) * (boxes[:, 3] - boxes[:, 1]).clamp(min=0)
-    kept = []
-    for i in range(len(boxes)):
-        merged = False
-        for j in kept:
-            lt = torch.maximum(boxes[i, :2], boxes[j, :2])
-            rb = torch.minimum(boxes[i, 2:], boxes[j, 2:])
-            inter = (rb - lt).clamp(min=0).prod()
-            if inter / torch.minimum(areas[i], areas[j]).clamp(min=1e-6) > 0.7:
-                boxes[j, :2] = torch.minimum(boxes[j, :2], boxes[i, :2])
-                boxes[j, 2:] = torch.maximum(boxes[j, 2:], boxes[i, 2:])
-                areas[j] = (boxes[j, 2] - boxes[j, 0]) * (boxes[j, 3] - boxes[j, 1])
-                merged = True
-                break
-        if not merged:
-            kept.append(i)
-    idx = torch.tensor(kept, dtype=torch.long)
-    boxes, scores = boxes[idx], scores[idx]
-    keep = nms(boxes, scores, MAX_OVERLAP)
     return boxes[keep], scores[keep]
 
 
 def choose_input_scale(model, cap, total, args, target_px):
     """Pick the input scale from the model's own detections, not from labels.
 
-    Runs the detector on a handful of frames at native resolution and measures
-    the median box it produces. If the footage was shot lower than the training
-    clips, that median lands far above the size the model knows, and the frame
-    is shrunk until it does not. Nothing here reads ground truth, so the choice
-    stays legal under the "no decisions from the eval clip" rule.
+    Fires only past AUTO_TRIGGER times the trained median; reads no ground
+    truth, so it needs no labelled footage to decide.
     """
-    probe_idx = [int(total * q) for q in (0.2, 0.5, 0.8)]
     sizes = []
-    for idx in probe_idx:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+    for quantile in (0.2, 0.5, 0.8):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(total * quantile))
         ok, frame = cap.read()
         if not ok:
             continue
         boxes, _ = detect_frame(model, frame, args.tile, args.overlap,
-                                0.25, args.device, args.batch)
+                                args.conf, args.device, args.batch)
         sizes += [float(max(b[2] - b[0], b[3] - b[1])) for b in boxes]
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
     if len(sizes) < 5:
         print("auto scale: too few detections to judge, staying at 1.0")
         return 1.0
+
     median = sorted(sizes)[len(sizes) // 2]
-    ideal = target_px / median
-    scale = min(SCALE_STEPS, key=lambda s: abs(s - ideal))
+    trigger = target_px * AUTO_TRIGGER
+    if median <= trigger:
+        print(f"auto scale: median detection {median:.0f}px over {len(sizes)} "
+              f"boxes, within {trigger:.0f}px — staying at 1.0")
+        return 1.0
+    scale = min(SCALE_STEPS, key=lambda s: abs(s - target_px / median))
     print(f"auto scale: median detection {median:.0f}px over {len(sizes)} boxes, "
-          f"target {target_px:.0f}px -> scale {scale} (ideal {ideal:.2f})")
+          f"past {trigger:.0f}px -> scale {scale}")
     return scale
 
 
@@ -219,9 +139,7 @@ def main():
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    scale = args.vis_width / W if W > args.vis_width else 1.0
-    # yuv420p needs even dimensions; an odd height kills ffmpeg instantly.
-    vis_size = (int(W * scale) // 2 * 2, int(H * scale) // 2 * 2)
+    vis_size = even_size(W, H, args.vis_width)
     writer = None if args.no_video else FragmentedWriter(
         out / "annotated.mp4", fps / args.frame_stride, vis_size)
 

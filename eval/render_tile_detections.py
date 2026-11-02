@@ -88,6 +88,8 @@ def main():
     ap.add_argument("--device", default="mps")
     ap.add_argument("--min-boxes", type=int, default=1,
                     help="skip tiles with fewer labels than this")
+    ap.add_argument("--offset", type=int, default=0,
+                    help="start the even spacing here, for a different sheet")
     ap.add_argument("--out", default="examples/val_detections.jpg")
     args = ap.parse_args()
 
@@ -104,7 +106,7 @@ def main():
 
     want = args.cols * args.rows
     step = max(1, len(pool) // want)
-    chosen = pool[::step][:want]
+    chosen = pool[args.offset::step][:want]
 
     results = model.predict([str(p) for p in chosen], device=args.device,
                             imgsz=args.tile, conf=args.conf, verbose=False)
@@ -128,7 +130,7 @@ def main():
     cv2.imwrite(str(out), cv2.vconcat(rows), [cv2.IMWRITE_JPEG_QUALITY, 90])
 
     print(f"{out}  {len(cells)} tiles from {len(pool)} candidates "
-          f"(every {step}th)")
+          f"(every {step}th from {args.offset})")
     print(f"  on this sheet: {total[0]} found, {total[1]} missed, {total[2]} extra")
 
 

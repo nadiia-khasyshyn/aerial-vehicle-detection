@@ -15,7 +15,7 @@ from pathlib import Path
 
 import cv2
 import torch
-from torchvision.ops import box_iou, nms
+from torchvision.ops import nms
 
 from pipeline_v1 import PROMPTS
 from ultralytics import YOLO, YOLOE

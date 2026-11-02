@@ -1,24 +1,17 @@
-"""Distance-banded metrics on the held-out clip: GT csv vs predictions csv.
+"""Distance-banded metrics on a clip: ground-truth csv vs predictions csv.
 
-Reads ground truth and predictions as full-frame boxes, estimates a distance
-for every box (see distance.py for the model and its assumptions) and reports
-each metric separately for 0-200 m and 200-400 m.
-
-Run predict_video.py with a LOW threshold (e.g. --conf 0.05) so the csv holds
-the full confidence range: AP needs it. The point metrics (detection rate,
-precision, false alarms) are then computed at --conf, the shipping threshold,
-which must be chosen on training data (rule 1), not tuned on this output.
+Estimates a distance for every box (`distance.py` holds the model) and reports
+each metric separately for 0-200 m and 200-400 m. Feed it a prediction csv
+written at a low threshold, because AP needs the full confidence range; the
+point metrics are then computed at --conf.
 
 Matching is per frame, greedy by confidence, IoU >= --iou, one GT per
-prediction. A TP/FN lands in the band of its GT box; an FP in the band of its
-own estimated distance; boxes whose estimate falls outside every band are
-counted separately and excluded.
+prediction. A TP or FN lands in the band of its GT box, an FP in the band of
+its own estimated distance, and boxes outside every band are excluded.
 
-Time to first detection needs object identity, which the GT csv does not
-carry, so GT boxes are linked into tracks greedily (IoU >= --track-iou across
-consecutive annotated frames). Per track it is the time from first appearance
-to the first frame its box is matched; tracks shorter than --min-track frames
-are skipped as unjudgeable.
+Time to first detection needs identity the csv does not carry, so GT boxes are
+linked into tracks by IoU across consecutive annotated frames; tracks shorter
+than --min-track frames are skipped.
 """
 
 import argparse
@@ -138,14 +131,23 @@ def main():
     ap.add_argument("--vehicle-len", type=float, default=DEFAULT_VEHICLE_LEN_M)
     ap.add_argument("--track-iou", type=float, default=0.3)
     ap.add_argument("--min-track", type=int, default=3)
+    ap.add_argument("--frames", choices=["gt", "union"], default="gt",
+                    help="'gt' evaluates only annotated frames; 'union' also "
+                         "counts predictions on frames with no ground truth, "
+                         "which is only right when every frame is annotated")
     ap.add_argument("--out", default=None, help="write metrics as json here")
     args = ap.parse_args()
 
     gt = read_boxes(args.gt, with_conf=False)
     pred_all = read_boxes(args.pred, with_conf=True)
-    frames = sorted(set(gt) | set(pred_all))
+    frames = (sorted(gt) if args.frames == "gt"
+              else sorted(set(gt) | set(pred_all)))
     if not frames:
         raise SystemExit("no frames in either csv")
+    extra = len(set(pred_all) - set(gt))
+    if extra and args.frames == "gt":
+        print(f"note: ignoring predictions on {extra} unannotated frames "
+              f"(--frames union would count them as false alarms)")
 
     def dist(box):
         return box_distance_m(*box[:4], args.img_width, args.hfov,

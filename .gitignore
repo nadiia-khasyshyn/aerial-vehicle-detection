@@ -23,3 +23,10 @@ data/videos/*.mp4
 
 # scratch copies of the dataset produced while experimenting
 dataset_zoom*/
+
+# drop folder for inference: the folders are tracked, the clips are not
+videos/in/*
+videos/out/*
+!videos/in/.gitkeep
+!videos/out/.gitkeep
+!videos/README.md

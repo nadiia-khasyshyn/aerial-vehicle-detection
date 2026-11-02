@@ -1,18 +1,10 @@
 """Train the sub-500k detector on the labelled tiles.
 
-No published checkpoint fits this custom scaling, so "pretrained" comes in two
-honest flavours instead:
-
-- --pretrain-coco first trains this same architecture on COCO's vehicle
-  classes (COCO pretrain is explicitly allowed), then fine-tunes on the tiles;
-  everything but the final class convolutions transfers (~97% of tensors).
-- --pretrained <ckpt> loads any checkpoint, copying whatever matches by shape.
-  From yolov8n.pt only the early backbone matches (~3% of parameters) — it is
-  close to training from scratch, which also works: the pseudo-labels already
-  carry the large labelling models' knowledge.
-
-The parameter budget is asserted before training starts, so an accidental
-config change cannot silently ship an oversized model.
+No published checkpoint fits this scaling, so there are two pretrain routes:
+--pretrain-coco trains this same architecture on COCO's vehicle classes and
+then fine-tunes on the tiles (everything but the final class convolutions
+transfers), while --pretrained <ckpt> copies whatever matches by shape from any
+checkpoint. The parameter budget is checked before training and on the result.
 """
 
 import argparse
@@ -60,6 +52,16 @@ def find_last_checkpoint(name):
     if not candidates:
         raise SystemExit(f"--resume: no runs/detect/{name}*/weights/last.pt found")
     return candidates[-1]
+
+
+def check_budget(weights):
+    """Count the trained checkpoint: a pretrain can widen the head past the yaml."""
+    from ultralytics import YOLO
+
+    n_params = sum(p.numel() for p in YOLO(str(weights)).model.parameters())
+    print(f"trained checkpoint: {n_params:,} parameters (budget {PARAM_BUDGET:,})")
+    if n_params >= PARAM_BUDGET:
+        raise SystemExit(f"{weights} exceeds the parameter budget")
 
 
 def main():
@@ -122,12 +124,10 @@ def main():
     print(f"device: {args.device}")
 
     if args.pretrain_coco:
-        # COCO (~37GB) auto-downloads into ultralytics' datasets_dir
-        # (~/datasets). Runtime settings.update() cannot move it — the constant
-        # binds at import — so on a pod bootstrap.sh symlinks ~/datasets to the
-        # big volume instead. Locally, make sure ~/datasets has ~40GB free.
-        # COCO ids: 1 bicycle, 2 car, 3 motorcycle, 5 bus, 7 truck — the tile
-        # labels include two-wheelers, so the pretrain sees them too.
+        # COCO (~37GB) lands in ultralytics' datasets_dir (~/datasets), which
+        # settings.update() cannot move at runtime — bootstrap.sh symlinks it to
+        # the pod volume. Locally ~/datasets needs ~40GB free.
+        # Ids 1,2,3,5,7: bicycle, car, motorcycle, bus, truck.
         print(f"stage 1/2: COCO vehicles pretrain, {args.coco_epochs} epochs "
               f"(note: a crash-restart --resume resumes only the stage it lands in)")
         stage = YOLO(args.model)
@@ -148,13 +148,13 @@ def main():
         batch=args.batch,
         device=args.device,
         name=args.name,
-        # A tiny model from scratch wants the full augmentation schedule and
-        # a clean final stretch; mosaic off for the last 20 epochs lets the
-        # box regression settle on realistic layouts.
+        # Mosaic off for the last 20 epochs: box regression settles on
+        # realistic layouts rather than stitched ones.
         close_mosaic=20,
         cos_lr=True,
         **overrides,
     )
+    check_budget(model.trainer.best)
 
     best = Path(model.trainer.save_dir) / "weights" / "best.pt"
     print(f"\nbest checkpoint: {best}")

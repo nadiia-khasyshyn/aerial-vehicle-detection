@@ -56,7 +56,6 @@ def main():
     ])
     model = load_classifier(args.ckpt, args.device)
 
-    rows = []
     batch_t, batch_meta = [], []
     n_hi = n_lo = n_skip = 0
     csv_f = open(out / "scores.csv", "w", newline="")

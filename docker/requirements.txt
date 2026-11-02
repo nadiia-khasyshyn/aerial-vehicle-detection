@@ -1,0 +1,6 @@
+# Runtime only: the ONNX detector needs no torch and no ultralytics.
+# Training and the labelling pipeline use the repo's top-level requirements.txt.
+onnxruntime==1.21.1
+opencv-python-headless==4.10.0.84
+numpy==2.1.3
+pyyaml==6.0.2

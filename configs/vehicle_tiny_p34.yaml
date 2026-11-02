@@ -1,4 +1,6 @@
-# Single-class vehicle detector, 388,786 parameters (budget: < 500,000).
+# Single-class vehicle detector. Built from this file for one class it is
+# 388,786 parameters; fine-tuned from the 80-class COCO pretrain it keeps that
+# head's wider class branch and ships at 490,482 (budget: < 500,000).
 #
 # YOLOv8 layout with two changes against yolov8n:
 #   1. The P5 (stride-32) branch is removed, backbone and head. P4's DFL
@@ -8,7 +10,7 @@
 #      so its parameters are spent on P3/P4 instead.
 #   2. width 0.25 with max_channels capped at 192 (yolov8n: 0.25 / 1024).
 #
-# Verify the count: python training/train.py --count-only
+# Count either one: python training/train.py --model <file> --count-only
 
 nc: 1
 

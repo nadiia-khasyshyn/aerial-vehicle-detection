@@ -1,4 +1,4 @@
-"""Count label corrections for the README (rule 2): compare a Label Studio
+"""Count label corrections for the README: compare a Label Studio
 JSON export against the original YOLO labels and report, per tile and in
 total, how many boxes were added, removed, fixed and untouched.
 

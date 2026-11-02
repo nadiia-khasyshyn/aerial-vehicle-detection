@@ -12,7 +12,7 @@ tiling:
   name_pattern: '^(?P<clip>\w+?)_f(?P<frame>\d+)_x(?P<x>\d+)_y(?P<y>\d+)(?:r(?P<rot>\d+))?$'
 
 model:
-  # Rule 5: the detector that ships must stay under 500k parameters.
+  # The detector that ships must stay under 500k parameters.
   param_budget: 500000
   config: configs/vehicle_tiny_p34.yaml
 
@@ -66,8 +66,18 @@ inference:
   # one vehicle counted twice.
   max_overlap: 0.2
   containment_merge: 0.7
+  # De-duplication within a single tile, before anything is merged across
+  # seams. Both backends (torch and onnxruntime) read it from here, because a
+  # detector that de-duplicates differently is a different detector.
+  tile_nms_iou: 0.6
+  # De-duplication once every tile's boxes are in frame coordinates.
+  frame_nms_iou: 0.5
   # Median vehicle size in the training tiles; --input-scale auto aims here.
-  train_median_px: 25.0
+  train_median_px: 28.0
+  # --input-scale auto rescales only past this multiple of train_median_px.
+  # The median detection runs large on any clip (recall rises with box size),
+  # so a tighter rule shrinks footage that was already in range.
+  auto_scale_trigger: 3.0
   scale_steps: [1.0, 0.75, 0.5, 0.35, 0.25, 0.15]
 
 distance:

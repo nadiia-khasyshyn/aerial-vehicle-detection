@@ -9,3 +9,8 @@ pillow>=10.0
 pyyaml>=6.0
 requests>=2.31
 scikit-learn>=1.4
+
+# ONNX export and the parity check in training/export_onnx.py. The runtime
+# image installs only docker/requirements.txt, which needs none of the above.
+onnx>=1.16
+onnxruntime>=1.18

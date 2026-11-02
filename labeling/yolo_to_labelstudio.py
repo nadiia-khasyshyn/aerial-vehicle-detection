@@ -19,7 +19,6 @@ labelstudio_diff.py to get the added / removed / fixed counts for the README.
 """
 
 import argparse
-import json
 from pathlib import Path
 
 import requests

@@ -1,4 +1,5 @@
-# Single-class vehicle detector, 388,786 parameters (budget: < 500,000).
+# Wider variant of vehicle_tiny_p34: 480,970 parameters for one class
+# (channel cap 224 instead of 192). Measured, then not shipped.
 #
 # YOLOv8 layout with two changes against yolov8n:
 #   1. The P5 (stride-32) branch is removed, backbone and head. On 512 px
@@ -7,7 +8,7 @@
 #      (reg_max 16 x stride 16 = 256 px per box side, i.e. boxes up to
 #      ~512 px). P5 exists for objects that fill the whole tile; this data
 #      has none, so its parameters are spent on P3/P4 instead.
-#   2. width 0.25 with max_channels capped at 224 (the widest cut that stays under budget: 480,970 params) (yolov8n: 0.25 / 1024).
+#   2. width 0.25 with max_channels capped at 224 (564,154 after the COCO pretrain, over budget)
 #
 # Verify the count: python training/train.py --count-only
 

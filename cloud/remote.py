@@ -1,7 +1,3 @@
-# -*- coding:utf8 -*-
-# !/usr/bin/env python3
-
-
 """
 SSH and rsync helpers for driving a RunPod pod from the local machine.
 """

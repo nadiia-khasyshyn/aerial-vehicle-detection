@@ -1,7 +1,3 @@
-# -*- coding:utf8 -*-
-# !/usr/bin/env python3
-
-
 """
 RunPod GPU catalog. Prices are read from the RunPod API and fall back to the snapshot below when the
 API is unreachable, batch hints are estimates to start from.

@@ -1,0 +1,14 @@
+# Drop clips into videos/in, then:
+#   docker compose run --rm detect
+# Annotated mp4s and per-frame csv land in videos/out.
+services:
+  detect:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: aerial-vehicle-detection
+    volumes:
+      # The only thing the container needs from the host. Swap the ONNX file
+      # by mounting another one over weights/ if you export a new one.
+      - ./videos:/app/videos
+    command: ["--in", "videos/in", "--out", "videos/out", "--conf", "0.50"]

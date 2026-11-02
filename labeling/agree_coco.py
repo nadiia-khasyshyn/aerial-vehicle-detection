@@ -1,6 +1,6 @@
 """Accept the boxes an open-vocabulary and a stock COCO detector agree on.
 
-Both models are allowed by rule 3: YOLO-World is open-vocabulary, the second
+Both models are general-purpose: YOLO-World is open-vocabulary, the second
 is a stock COCO checkpoint. Their failure modes differ — YOLO-World follows
 the prompt and scatters low-confidence noise over kerbs and rooftops, the COCO
 detector knows what a car looks like but was trained on ground-level views and

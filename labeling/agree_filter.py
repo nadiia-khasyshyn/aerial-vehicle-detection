@@ -20,9 +20,8 @@ from torchvision.ops import box_iou
 
 from ultralytics import YOLO, YOLOWorld
 
-# The set that measured 83 detections on 3405804 frame 150. Adding moped,
-# scooter and the distractor prompts diluted the scores and lost the two most
-# obvious cars, so this stays as it was validated.
+# Adding moped, scooter or the distractor prompts dilutes the scores and loses
+# obvious cars, so this set stays as it was validated.
 WORLD_PROMPTS = [
     "car seen from above",
     "van seen from above",
@@ -97,10 +96,8 @@ def main():
             # whether both put an object here.
             hit = (box_iou(bc, bw) >= args.iou).any(dim=1)
             keep = bc[hit]
-            keep_s = sc[hit]
         else:
             keep = torch.zeros((0, 4))
-            keep_s = torch.zeros(0)
         n_a += len(keep)
 
         img = cv2.imread(str(p))
